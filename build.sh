@@ -137,6 +137,10 @@ EOF
 )
 MESSAGE_ID=$(send_msg "$text" 2>&1 | jq -r .result.message_id)
 
+# --- SAVE MSG ID FOR GITHUB WORKFLOW ---
+echo "MESSAGE_ID=$MESSAGE_ID" >> $GITHUB_ENV
+# ---------------------------------------
+
 ## Build GKI
 log "Generating config..."
 make $BUILD_FLAGS $KERNEL_DEFCONFIG
@@ -205,7 +209,8 @@ if [[ $STATUS == "BETA" ]]; then
   reply_file "$MESSAGE_ID" "$workdir/$ZIP_NAME"
   reply_file "$MESSAGE_ID" "$workdir/build.log"
 else
-  reply_msg "$MESSAGE_ID" "✅ Build Succeeded"
+  # Modified: Don't reply here. The workflow will send the artifact link.
+  log "✅ Build Succeeded. Artifact link will be sent by GitHub Action."
 fi
 
 exit 0

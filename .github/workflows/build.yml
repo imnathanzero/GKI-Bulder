@@ -105,6 +105,7 @@ jobs:
           ./build.sh
 
       - name: Upload Artifacts (ZIP Only)
+        id: upload-zip
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BASE_NAME }}-${{ github.run_number }}
@@ -116,3 +117,24 @@ jobs:
         with:
           name: info-${{ github.run_number }}
           path: artifacts/*.txt
+
+      - name: Send Artifact Link to Telegram
+        if: inputs.STATUS != 'BETA' && success()
+        env:
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          MESSAGE_ID: ${{ env.MESSAGE_ID }}
+          # Constructs the URL: Server URL + Repo + Run ID + Artifact ID
+          ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-zip.outputs.artifact-id }}
+        run: |
+            MSG="✅ *Build Succeeded*
+
+            📥 [Download Artifact]($ARTIFACT_URL)"
+
+            # Send message replying to the original build start message
+            curl -s -X POST "https://api.telegram.org/bot$TG_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TG_CHAT_ID" \
+            -d reply_to_message_id="$MESSAGE_ID" \
+            -d text="$MSG" \
+            -d parse_mode="Markdown" \
+            -d disable_web_page_preview=true
