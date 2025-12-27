@@ -16,8 +16,8 @@ KERNEL_DEFCONFIG="gki_defconfig"
 # Release repository
 GKI_RELEASES_REPO="https://github.com/LoggingNewMemory/SuiKernel-Release"
 # Clang
-CLANG_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86"
-CLANG_BRANCH="llvm-r536225-release"
+CLANG_URL="https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r536225"
+CLANG_BRANCH="15.0"
 # Zip name
 # Format: Kernel_name-Linux_version-Variant-Build_date
 ZIP_NAME="$KERNEL_NAME-KVER-VARIANT-BUILD_DATE.zip"
