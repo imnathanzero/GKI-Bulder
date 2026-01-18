@@ -1,4 +1,0 @@
-[LOG] Cloning kernel source from LoggingNewMemory/SuiKernel-android12-5.10
-fatal: destination path '/mnt/7B4DDB8B5E07F8FE/Code/SuiKernel/SuiKernel-GKI-Bulder/ksrc' already exists and is not an empty directory.
-[ERROR] Failed at line 19 [git clone -q --depth=1 $KERNEL_REPO -b $KERNEL_BRANCH $KSRC]
-{"ok":false,"error_code":404,"description":"Not Found"}{"ok":false,"error_code":404,"description":"Not Found"}

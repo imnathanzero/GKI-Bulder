@@ -23,14 +23,9 @@ LINUX_VERSION=$(make kernelversion)
 DEFCONFIG_FILE=$(find ./arch/arm64/configs -name "$KERNEL_DEFCONFIG")
 cd $workdir
 
-# Set KernelSU Variant
+# # Set KernelSU Variant
 log "Setting KernelSU variant..."
-case "$KSU" in
-  "Next") VARIANT="KSUN" ;;
-  "Suki") VARIANT="SUKISU" ;;
-  "None") VARIANT="NKSU" ;;
-esac
-[[ $KSU_SUSFS == "true" ]] && VARIANT+="+SuSFS"
+VARIANT="KSUN"
 
 # Replace Placeholder in zip name
 ZIP_NAME=${ZIP_NAME//KVER/$LINUX_VERSION}
@@ -74,74 +69,52 @@ fi
 cd $KSRC
 
 ## KernelSU setup
-if ksu_included; then
-  # Remove existing KernelSU drivers
-  for KSU_PATH in drivers/staging/kernelsu drivers/kernelsu KernelSU; do
-    if [[ -d $KSU_PATH ]]; then
-      log "KernelSU driver found in $KSU_PATH, Removing..."
-      KSU_DIR=$(dirname "$KSU_PATH")
+# Remove existing KernelSU drivers
+for KSU_PATH in drivers/staging/kernelsu drivers/kernelsu KernelSU; do
+  if [[ -d $KSU_PATH ]]; then
+    log "KernelSU driver found in $KSU_PATH, Removing..."
+    KSU_DIR=$(dirname "$KSU_PATH")
 
-      [[ -f "$KSU_DIR/Kconfig" ]] && sed -i '/kernelsu/d' $KSU_DIR/Kconfig
-      [[ -f "$KSU_DIR/Makefile" ]] && sed -i '/kernelsu/d' $KSU_DIR/Makefile
+    [[ -f "$KSU_DIR/Kconfig" ]] && sed -i '/kernelsu/d' $KSU_DIR/Kconfig
+    [[ -f "$KSU_DIR/Makefile" ]] && sed -i '/kernelsu/d' $KSU_DIR/Makefile
 
-      rm -rf $KSU_PATH
-    fi
-  done
-
-  # Install kernelsu
-  case "$KSU" in
-  "Next") install_ksu pershoot/KernelSU-Next $(if susfs_included; then echo "next-susfs"; else echo "next"; fi) ;;
-  "Suki") install_ksu SukiSU-Ultra/SukiSU-Ultra $(if susfs_included; then echo "susfs-main"; elif ksu_manual_hook; then echo "nongki"; else echo "main"; fi) ;;
-  esac
-  config --enable CONFIG_KSU
-fi
-
-# SUSFS
-if susfs_included; then
-  # Kernel-side
-  log "Applying kernel-side susfs patches"
-  git clone --depth=1 -q -b gki-android12-5.10 https://gitlab.com/simonpunk/susfs4ksu $workdir/susfs
-  SUSFS_PATCHES=$workdir/susfs/kernel_patches
-  cp -R $SUSFS_PATCHES/fs/* ./fs
-  cp -R $SUSFS_PATCHES/include/* ./include
-  patch -p1 < $SUSFS_PATCHES/50_add_susfs_in_gki-android12-5.10.patch
-  SUSFS_VERSION=$(grep -E '^#define SUSFS_VERSION' ./include/linux/susfs.h | cut -d' ' -f3 | sed 's/"//g')
-  config --enable CONFIG_KSU_SUSFS
-else
-  config --disable CONFIG_KSU_SUSFS
-fi
-
-# KSU Manual Hooks
-if ksu_manual_hook; then
-  # Apply manual hook patch based on KSU variant
-  if [[ $KSU == "Suki" ]]; then
-    log "Applying manual hook patch for SukiSU (syscall_hooks.patch)"
-    patch -p1 < $workdir/kernel-patches/syscall_hooks.patch
-  else
-    log "Applying manual hook patch for KernelSU (manual-hook.patch)"
-    patch -p1 < $workdir/kernel-patches/manual-hook.patch
+    rm -rf $KSU_PATH
   fi
+done
 
-  config --enable CONFIG_KSU_MANUAL_HOOK
-  config --disable CONFIG_KSU_KPROBES_HOOK
-  config --disable CONFIG_KSU_SUSFS_SUS_SU # Conflicts with manual hook
+# Install kernelsu (Next)
+install_ksu pershoot/KernelSU-Next "dev"
+config --enable CONFIG_KSU
+config --disable CONFIG_KSU_MANUAL_SU
+config --disable CONFIG_KSU_SUSFS
+
+# ---
+# ✅ NEW BRANDING SECTION
+# ---
+log "🧹 Finalizing build configuration with branding..."
+
+# Get the GitHub Release Tag, using HSKY4 as a fallback for local builds
+RELEASE_TAG="${GITHUB_REF_NAME:-HSKY4}"
+
+# This sets the string that is appended to the base kernel version for `uname -r`
+INTERNAL_BRAND="-${KERNEL_NAME}-${RELEASE_TAG}-${VARIANT}"
+
+# This defines the user-facing name for the zip file and installer string
+export KERNEL_RELEASE_NAME="${KERNEL_NAME}-${RELEASE_TAG}-${LINUX_VERSION}-${VARIANT}"
+
+
+# Apply branding-specific modifications from your snippet
+if [ -f "./common/build.config.gki" ]; then
+    log "Patching build.config.gki for branding..."
+    sed -i 's/check_defconfig//' ./common/build.config.gki
 fi
 
-# Enable KPM Supports for SukiSU
-if [[ $KSU == "Suki" ]]; then
-  config --enable CONFIG_KPM
-fi
+# Set the kernel's local version for uname -r and disable auto-generation
+config --set-str CONFIG_LOCALVERSION "$INTERNAL_BRAND"
+config --disable CONFIG_LOCALVERSION_AUTO
+log "✅ Internal kernel version set to: ${LINUX_VERSION}${INTERNAL_BRAND}"
+log "✅ User-facing release name set to: $KERNEL_RELEASE_NAME"
 
-# set localversion
-if [[ $TODO == "kernel" ]]; then
-  LATEST_COMMIT_HASH=$(git rev-parse --short HEAD)
-  if [[ $STATUS == "BETA" ]]; then
-    SUFFIX=$LATEST_COMMIT_HASH
-  else
-    SUFFIX="release@${LATEST_COMMIT_HASH}"
-  fi
-  config --set-str CONFIG_LOCALVERSION "-$KERNEL_NAME/$SUFFIX"
-fi
 
 # Declare needed variables
 export KBUILD_BUILD_USER="$USER"
@@ -157,13 +130,16 @@ text=$(
 *==== SuiKernel Builder ====*
 🐧 *Linux Version*: $LINUX_VERSION
 📅 *Build Date*: $KBUILD_BUILD_TIMESTAMP
-📛 *KernelSU*: ${KSU}$(ksu_included && echo " | $KSU_VERSION")
-ඞ *SuSFS*: $(susfs_included && echo "$SUSFS_VERSION" || echo "None")
+📛 *KernelSU*: ${KSU} | $KSU_VERSION
 🔰 *Compiler*: $COMPILER_STRING
 😸 *Kakangkuh*: 100
 EOF
 )
 MESSAGE_ID=$(send_msg "$text" 2>&1 | jq -r .result.message_id)
+
+# --- SAVE MSG ID FOR GITHUB WORKFLOW ---
+echo "MESSAGE_ID=$MESSAGE_ID" >> $GITHUB_ENV
+# ---------------------------------------
 
 ## Build GKI
 log "Generating config..."
@@ -186,45 +162,6 @@ $KMI_CHECK "$KSRC/android/abi_gki_aarch64.xml" "$MODULE_SYMVERS"
 ## Post-compiling stuff
 cd $workdir
 
-# Patch the kernel Image for KPM Supports
-if [[ $KSU == "Suki" ]]; then
-  tempdir=$(mktemp -d) && cd $tempdir
-
-  # Setup patching tool
-  log "Fetching SukiSU patcher URL..."
-  LATEST_SUKISU_PATCH=""
-  for i in {1..5}; do
-      # Use jq for robust JSON parsing and get the first matching URL
-      LATEST_SUKISU_PATCH=$(curl -s "https://api.github.com/repos/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/latest" | jq -r '.assets[] | select(.name | endswith("patch_linux")) | .browser_download_url' | head -n 1)
-
-      if [[ -n "$LATEST_SUKISU_PATCH" ]]; then
-          log "URL found successfully."
-          break # Exit loop if URL is found
-      fi
-
-      log "Attempt $i/5 failed to get URL. Retrying in 3 seconds..."
-      sleep 3
-  done
-
-  # If the variable is still empty after all retries, exit with an error
-  if [[ -z "$LATEST_SUKISU_PATCH" ]]; then
-      error "Could not fetch SukiSU patcher URL after 5 attempts. Aborting."
-      exit 1
-  fi
-
-  log "Downloading SukiSU patcher..."
-  wget --tries=5 --timeout=30 -qO patch_linux "$LATEST_SUKISU_PATCH"
-  chmod a+x ./patch_linux
-
-  # Patch the kernel image
-  cp $KERNEL_IMAGE ./Image
-  sudo ./patch_linux
-  mv oImage Image
-  KERNEL_IMAGE=$(pwd)/Image
-
-  cd -
-fi
-
 # Clone AnyKernel
 log "Cloning anykernel from $(simplify_gh_url "$ANYKERNEL_REPO")"
 git clone -q --depth=1 $ANYKERNEL_REPO -b $ANYKERNEL_BRANCH anykernel
@@ -234,12 +171,12 @@ if [[ $STATUS == "BETA" ]]; then
   BUILD_DATE=$(date -d "$KBUILD_BUILD_TIMESTAMP" +"%Y%m%d-%H%M")
   ZIP_NAME=${ZIP_NAME//BUILD_DATE/$BUILD_DATE}
   sed -i \
-    "s/kernel.string=.*/kernel.string=${KERNEL_NAME} ${LINUX_VERSION} (${BUILD_DATE}) ${VARIANT}/g" \
+    "s/kernel.string=.*/kernel.string=${KERNEL_RELEASE_NAME} (${BUILD_DATE})/g" \
     $workdir/anykernel/anykernel.sh
 else
   ZIP_NAME=${ZIP_NAME//-BUILD_DATE/}
   sed -i \
-    "s/kernel.string=.*/kernel.string=${KERNEL_NAME} ${LINUX_VERSION} ${VARIANT}/g" \
+    "s/kernel.string=.*/kernel.string=${KERNEL_RELEASE_NAME}/g" \
     $workdir/anykernel/anykernel.sh
 fi
 
@@ -250,79 +187,19 @@ cp $KERNEL_IMAGE .
 zip -r9 $workdir/$ZIP_NAME ./*
 cd -
 
-if [[ $BUILD_BOOTIMG == "true" ]]; then
-  AOSP_MIRROR=https://android.googlesource.com
-  AOSP_BRANCH=main-kernel-build-2024
-  log "Cloning build tools..."
-  git clone -q --depth=1 $AOSP_MIRROR/kernel/prebuilts/build-tools -b $AOSP_BRANCH build-tools
-  log "Cloning mkbootimg..."
-  git clone -q --depth=1 $AOSP_MIRROR/platform/system/tools/mkbootimg -b $AOSP_BRANCH mkbootimg
-
-  AVBTOOL="$workdir/build-tools/linux-x86/bin/avbtool"
-  MKBOOTIMG="$workdir/mkbootimg/mkbootimg.py"
-  UNPACK_BOOTIMG="$workdir/mkbootimg/unpack_bootimg.py"
-  BOOT_SIGN_KEY_PATH="$workdir/key/key.pem"
-  BOOTIMG_NAME="${ZIP_NAME%.zip}-boot-dummy1.img"
-
-  generate_bootimg() {
-    local kernel="$1"
-    local output="$2"
-
-    # Create boot image
-    log "Creating $output"
-    $MKBOOTIMG --header_version 4 \
-      --kernel "$kernel" \
-      --output "$output" \
-      --ramdisk out/ramdisk \
-      --os_version 12.0.0 \
-      --os_patch_level "2099-12"
-
-    sleep 0.5
-
-    # Sign the boot image
-    log "Signing $output"
-    $AVBTOOL add_hash_footer \
-      --partition_name boot \
-      --partition_size $((64 * 1024 * 1024)) \
-      --image "$output" \
-      --algorithm SHA256_RSA2048 \
-      --key $BOOT_SIGN_KEY_PATH
-  }
-
-  tempdir=$(mktemp -d) && cd $tempdir
-  cp $KERNEL_IMAGE .
-  gzip -n -f -9 -c Image > Image.gz
-  lz4 -l -12 --favor-decSpeed Image Image.lz4
-
-  log "Downloading ramdisk..."
-  wget -qO gki.zip https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip
-  unzip -q gki.zip && rm gki.zip
-  $UNPACK_BOOTIMG --boot_img=boot-5.10.img && rm boot-5.10.img
-
-  for format in raw lz4 gz; do
-    kernel="./Image"
-    [[ $format != "raw" ]] && kernel+=".$format"
-
-    _output="${BOOTIMG_NAME/dummy1/$format}"
-    generate_bootimg "$kernel" "$_output"
-
-    mv "$_output" $workdir
-  done
-  cd $workdir
-fi
+# Logic for generating BootIMG removed.
 
 if [[ $STATUS != "BETA" ]]; then
   echo "BASE_NAME=$KERNEL_NAME-$VARIANT" >> $GITHUB_ENV
   mkdir -p $workdir/artifacts
-  mv $workdir/*.zip $workdir/*.img $workdir/artifacts
+  # Only move zips, removed logic for moving .img
+  mv $workdir/*.zip $workdir/artifacts
 fi
 
 if [[ $LAST_BUILD == "true" && $STATUS != "BETA" ]]; then
   (
     echo "LINUX_VERSION=$LINUX_VERSION"
-    echo "SUSFS_VERSION=$(curl -s https://gitlab.com/simonpunk/susfs4ksu/raw/gki-android12-5.10/kernel_patches/include/linux/susfs.h | grep -E '^#define SUSFS_VERSION' | cut -d' ' -f3 | sed 's/"//g')"
     echo "KSU_NEXT_VERSION=$(gh api repos/KernelSU-Next/KernelSU-Next/tags --jq '.[0].name')"
-    echo "SUKISU_VERSION=$(gh api repos/SukiSU-Ultra/SukiSU-Ultra/tags --jq '.[0].name')"
     echo "KERNEL_NAME=$KERNEL_NAME"
     echo "RELEASE_REPO=$(simplify_gh_url "$GKI_RELEASES_REPO")"
   ) >> $workdir/artifacts/info.txt
@@ -332,7 +209,8 @@ if [[ $STATUS == "BETA" ]]; then
   reply_file "$MESSAGE_ID" "$workdir/$ZIP_NAME"
   reply_file "$MESSAGE_ID" "$workdir/build.log"
 else
-  reply_msg "$MESSAGE_ID" "✅ Build Succeeded"
+  # Modified: Don't reply here. The workflow will send the artifact link.
+  log "✅ Build Succeeded. Artifact link will be sent by GitHub Action."
 fi
 
 exit 0
